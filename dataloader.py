@@ -12,23 +12,32 @@ FLAGS = flags.FLAGS
 
 
 class SwimmingPoolDataset(torch.utils.data.Dataset):
-    def __init__(self, data_dir):
-
-        print(f"{data_dir}/yes/*.txt")
+    def __init__(self, data_dir, val):
         label_files = glob.glob(f"{data_dir}/yes/*.txt")
         self.labels = []
         self.images = []
-        for label_file in label_files:
-            with open(label_file, "r") as fp: annots = fp.read().splitlines()
-            img_bboxes = []
-            for annot in annots:
-                splits = annot.split(" ")
-                img_bboxes.append((max(0, int(splits[0])), max(0, int(splits[1])), min(int(splits[2]), 1250), min(int(splits[3]), 1250), splits[4]))
+        self.val = val
+        if not self.val:
+            for label_file in label_files:
+                with open(label_file, "r") as fp: annots = fp.read().splitlines()
+                img_bboxes = []
+                for annot in annots:
+                    splits = annot.split(" ")
+                    img_bboxes.append((max(0, int(splits[0])), max(0, int(splits[1])), min(int(splits[2]), 1250), min(int(splits[3]), 1250), splits[4]))
 
-            self.labels.append(img_bboxes)
-            self.images.append(label_file.replace(".txt", ".tif"))
+                self.labels.append(img_bboxes)
+                self.images.append(label_file.replace(".txt", ".tif"))
 
-        self.images.extend(glob.glob(f"{data_dir}/no/*.tif"))
+            self.images.extend(glob.glob(f"{data_dir}/no/*.tif")[:1200])
+        else:
+            self.images.extend(glob.glob(f"{data_dir}/no/*.tif")[1200:])
+
+            # Add unlabelled pool images for validation
+            for pool_image in glob.glob(f"{data_dir}/yes/*.tif"):
+                if pool_image not in self.images:
+                    self.images.append(pool_image)
+                    if len(self.images) >= 1200: break
+
         self.image_size = 417
         print(len(self.labels), len(self.images))
 
@@ -44,33 +53,43 @@ class SwimmingPoolDataset(torch.utils.data.Dataset):
     def __getitem__(self, index):
         image = np.array(Image.open(self.images[index]))
         
-        label = self.labels[index] if index < len(self.labels) else None
-        if label == []:
-            image = np.array(Image.open(self.images[np.random.randint(len(self.labels), len(self.images))]))
-            label = None
+        if not self.val:
+            label = self.labels[index] if index < len(self.labels) else None
+            if label == []:
+                image = np.array(Image.open(self.images[np.random.randint(len(self.labels), len(self.images))]))
+                label = None
 
-        if label is not None:
-            # Contains pool
-            label = label[np.random.randint(len(label))]
-            crop_coords = self.crop_pool_image(label)
-            crop_image = image[crop_coords[0]:crop_coords[2], crop_coords[1]:crop_coords[3]]
-            pool = 1.
-            if crop_image.shape != (417, 417, 3):
-                print(image.shape, crop_image.shape, crop_coords)
+            if label is not None:
+                # Contains pool
+                label = label[np.random.randint(len(label))]
+                crop_coords = self.crop_pool_image(label)
+                crop_image = image[crop_coords[0]:crop_coords[2], crop_coords[1]:crop_coords[3]]
+                pool = 1.
+            else:
+                # No pool
+                lx, ty = np.random.randint(0, 1250-self.image_size), np.random.randint(0, 1250-self.image_size)
+                crop_image = image[lx: lx+self.image_size, ty: ty+self.image_size]
+                pool = 0.
+
+            img = torch.from_numpy(np.ascontiguousarray(crop_image)).float()
+            img = img / 255
+            img = img.movedim(2,0)
+
+            return img, pool
         else:
-            # No pool
-            lx, ty = np.random.randint(0, 1250-self.image_size), np.random.randint(0, 1250-self.image_size)
-            crop_image = image[lx: lx+self.image_size, ty: ty+self.image_size]
-            pool = 0.
-            if crop_image.shape != (417, 417, 3):
-                print(image.shape, crop_image.shape, lx, ty)
+            imgs = []
+            for x in [0, 417, 833]:
+                for y in [0, 417, 833]:
+                    imgs.append(image[x:x+417, y:y+417])
 
+            imgs = torch.from_numpy(np.ascontiguousarray(imgs)).float()
+            imgs = imgs / 255
+            imgs = imgs.movedim(3,1)
 
-        img = torch.from_numpy(np.ascontiguousarray(crop_image)).float()
-        img = img / 255
-        img = img.movedim(2,0)
+            pool = 1. if index > 1200 else 0.
 
-        return img, pool
+            return imgs, pool
+        
 
 
 class TimeSeries(torch.utils.data.Dataset):
