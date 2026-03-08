@@ -39,12 +39,12 @@ class PoolClassifier(nn.Module):
 class RequestPredictor(nn.Module):
     def __init__(self):
         super(RequestPredictor, self).__init__()
-        
-        self.add_neighbors = False
+
+        self.add_neighbors = True
         if self.add_neighbors:
-            self.net = nn.Sequential(nn.Linear(26*7, 512), nn.SiLU(), nn.Linear(512, 64), nn.SiLU(), nn.Linear(64, 4))
+            self.net = nn.Sequential(nn.Linear(26*7, 512), nn.SiLU(), nn.Linear(512, 64), nn.SiLU(), nn.Linear(64, 2))
         else:
-            self.net = nn.Sequential(nn.Linear(26, 128), nn.SiLU(), nn.Linear(128, 4))
+            self.net = nn.Sequential(nn.Linear(26, 128), nn.SiLU(), nn.Linear(128, 2))
 
     def forward(self, x):
         return self.net(x)

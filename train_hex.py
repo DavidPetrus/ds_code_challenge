@@ -19,9 +19,9 @@ FLAGS = flags.FLAGS
 flags.DEFINE_string('exp','test','')
 flags.DEFINE_bool('wandb', True,'')
 flags.DEFINE_integer('batch_size',64,'')
-flags.DEFINE_integer('num_workers',64,'')
+flags.DEFINE_integer('num_workers',0,'')
 flags.DEFINE_float('lr',1e-2,'')
-flags.DEFINE_integer('num_epochs',100,'')
+flags.DEFINE_integer('num_epochs',20,'')
 flags.DEFINE_float('l1_beta',10.,'')
 
 
@@ -48,27 +48,24 @@ def main(argv):
     format_string = "%Y-%m-%d %H:%M:%S"
 
     # Add zero weeks
-    weekly_counts = defaultdict(lambda: defaultdict(lambda: 0))
+    weekly_counts = defaultdict(lambda: [0] * 51)
     startdate = datetime(2020,1,5,0,0,0)
+    date_idxs = {}
+    for d in range(51): date_idxs[startdate + d*timedelta(days=7)] = d
+
     for hex_key, reqs in hex_dict.items():
         for req in reqs:
             req_dt = datetime.strptime(req[2][:-6], format_string)
             week_offset = (req_dt - startdate).days // 7
-            weekly_counts[hex_key][startdate + week_offset*timedelta(days=7)] += 1
-
-    data_dict = {}
-    for hex_key, req_counts in weekly_counts.items():
-        sorted_dates = sorted(list(req_counts.keys()))
-        if len(sorted_dates) < 50: continue
-        data_dict[hex_key] = []
-        for date in sorted_dates: data_dict[hex_key].append(req_counts[date])
+            if week_offset < 0 or week_offset >= 51: continue
+            weekly_counts[hex_key][date_idxs[startdate + week_offset*timedelta(days=7)]] += 1
 
     start = datetime.now()
-    print(len(data_dict.keys()))
-    training_set = TimeSeriesDataset(list(data_dict.keys())[:750], data_dict)
+    print(len(weekly_counts.keys()))
+    training_set = TimeSeriesDataset(list(weekly_counts.keys())[:750], weekly_counts)
     trainloader = torch.utils.data.DataLoader(training_set, batch_size=FLAGS.batch_size, shuffle=True, num_workers=FLAGS.num_workers)
 
-    validation_set = TimeSeriesDataset(list(data_dict.keys())[750:], data_dict)
+    validation_set = TimeSeriesDataset(list(weekly_counts.keys())[750:], weekly_counts)
     valloader = torch.utils.data.DataLoader(validation_set, batch_size=FLAGS.batch_size, shuffle=True, num_workers=FLAGS.num_workers)
 
     predictor = RequestPredictor()
@@ -86,21 +83,21 @@ def main(argv):
             request_batch = request_batch.to("cuda")
             target_batch = target_batch.to("cuda")
 
-            result = predictor(request_batch) # bs
-            loss = F.smooth_l1_loss(result, target_batch, beta=FLAGS.l1_beta, reduction="mean")
+            result = predictor(request_batch) # bs, 2
+            loss = F.mse_loss(result, target_batch, reduction="mean")
             loss.backward()
 
             optimizer.step()
 
             with torch.no_grad():
-                diff = result - target_batch
-                diff_frac = (diff / target_batch).abs() / target_batch
+                slope_diff = (result[:,0] - target_batch).abs().mean()
+                bias_diff = (result[:,1] - target_batch).abs().mean()
 
-            if train_iter % 100 == 1:
-                print(f"Epoch: {epoch}, Train Iter: {train_iter}, Loss: {loss:.2f}, Error_frac: {diff_frac:.2f}")
+            if train_iter % 10 == 1:
+                print(f"Epoch: {epoch}, Train Iter: {train_iter}, Loss: {loss:.2f}, Slope diff: {slope_diff:.2f}, Bias diff: {bias_diff:.2f}")
 
             if FLAGS.wandb:
-                wandb.log({"Epoch": epoch, "Train Iter": train_iter, "Loss": loss, "Error frac": diff_frac})
+                wandb.log({"Epoch": epoch, "Train Iter": train_iter, "Loss": loss, "Slope diff": slope_diff, "Bias diff": bias_diff})
 
         for item in valloader:
             with torch.no_grad():
@@ -110,18 +107,18 @@ def main(argv):
                 target_batch = target_batch.to("cuda") # bs
 
                 result = predictor(request_batch) # bs
-                loss = F.smooth_l1_loss(result, target_batch, beta=FLAGS.l1_beta, reduction="mean")
+                loss = F.mse_loss(result, target_batch, reduction="mean")
 
-                diff = result - target_batch
-                diff_frac = (diff / target_batch).abs() / target_batch
+                slope_diff = (result[:,0] - target_batch).abs().mean()
+                bias_diff = (result[:,1] - target_batch).abs().mean()
 
-                if val_iter % 100 == 1:
-                    print(f"Val Iter: {val_iter}, Loss: {loss:.2f}, Error_frac: {diff_frac:.2f}")
+                if val_iter % 10 == 1:
+                    print(f"Val Iter: {val_iter}, Loss: {loss:.2f}, Slope diff: {slope_diff:.2f}, Bias diff: {bias_diff:.2f}")
 
                 if FLAGS.wandb:
-                    wandb.log({"Epoch": epoch, "Val Iter": val_iter, "Val loss": loss, "Error frac": diff_frac})
+                    wandb.log({"Epoch": epoch, "Val Iter": val_iter, "Val loss": loss, "Val Slope diff": slope_diff, "Val Bias diff": bias_diff})
 
-        if epoch % 10 == 0:
+        if epoch % 1 == 0:
             torch.save(predictor.state_dict(),f"weights/{FLAGS.exp}_{epoch}.pt")
 
 

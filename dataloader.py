@@ -44,11 +44,11 @@ class SwimmingPoolDataset(torch.utils.data.Dataset):
         self.image_size = 417
         print(len(self.labels), len(self.images))
 
-        self.rot_flips = v2.Compose([
+        self.flips = v2.Compose([
             v2.RandomHorizontalFlip(p=0.5),
-            v2.RandomVerticalFlip(p=0.5),
-            v2.RandomRotation(degrees=[-180, 180])
+            v2.RandomVerticalFlip(p=0.5)
         ])
+        self.rotation = v2.RandomRotation(degrees=[-180, 180])
 
         self.color_jitter = v2.ColorJitter(0.2, 0.2, 0.2, 0.05)
 
@@ -105,7 +105,8 @@ class SwimmingPoolDataset(torch.utils.data.Dataset):
             img = img / 255
             img = img.movedim(2,0)
 
-            img = self.rot_flips(img)
+            img = self.flips(img)
+            if np.random.random() < 0.75: img = self.rotation(img)
             img = self.color_jitter(img)
 
             return img, pool
@@ -126,25 +127,42 @@ class SwimmingPoolDataset(torch.utils.data.Dataset):
 
 
 class TimeSeriesDataset(torch.utils.data.Dataset):
-    def __init__(self, hex_keys, weekly_counts):
+    def __init__(self, hex_keys, weekly_counts, target_fit_len=10):
         self.seq_len = 26
         self.hex_keys = hex_keys
         self.weekly_counts = weekly_counts # num_hexs, num_weeks
 
-        self.add_neighbors = False
+        self.add_neighbors = True
+        self.regressor = LinearRegression()
+        self.target_fit_len = target_fit_len
 
     def __len__(self):
         return len(self.hex_keys)
 
     def __getitem__(self, index):
-        seq_idx = np.random.randint(len(self.weekly_counts[self.hex_keys[index]]) - (self.seq_len + 4))
-        input_seq = self.weekly_counts[self.hex_keys[index]][seq_idx: seq_idx+self.seq_len]
-        target_seq = self.weekly_counts[self.hex_keys[index]][seq_idx+self.seq_len: seq_idx+self.seq_len+4]
+        seq_idx = np.random.randint(51 - (self.seq_len + 4))
+        input_seq = []
+        target_seq = self.weekly_counts[self.hex_keys[index]][seq_idx+self.seq_len+4 - self.target_fit_len: seq_idx+self.seq_len+4]
+        slope, bias = np.polyfit(np.arange(self.target_fit_len), np.array(target_seq))
+
         if self.add_neighbors:
             neighbor_seqs = []
-            for hex_key in h3.k_ring(self.hex_keys[index]):
-                n_idx = self.hex_keys.index(hex_key)
-                neighbor_seqs.append(self.weekly_counts[n_idx][seq_idx: seq_idx+self.seq_len])
+            try:
+                grid_disk = h3.grid_disk(self.hex_keys[index], 1)
+            except:
+                index = np.random.randint(len(self.hex_keys))
+                target_seq = self.weekly_counts[self.hex_keys[index]][seq_idx+self.seq_len: seq_idx+self.seq_len+4]
+                grid_disk = h3.grid_disk(self.hex_keys[index], 1)
+
+            for hex_key in grid_disk:
+                if hex_key in self.hex_keys:
+                    n_idx = self.hex_keys.index(hex_key)
+                    neighbor_seqs.append(self.weekly_counts[n_idx][seq_idx: seq_idx+self.seq_len])
+                else:
+                    neighbor_seqs.append([-1] * self.seq_len)
+
                 input_seq.extend(neighbor_seqs[-1])
+        else:
+            input_seq = self.weekly_counts[self.hex_keys[index]][seq_idx: seq_idx+self.seq_len]
                     
-        return torch.tensor(input_seq).float(), torch.tensor(target_seq).float()
+        return torch.tensor(input_seq).float(), torch.tensor([slope, (self.target_fit_len - 4)*slope + bias]).float()

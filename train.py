@@ -17,10 +17,11 @@ FLAGS = flags.FLAGS
 flags.DEFINE_string('exp','test','')
 flags.DEFINE_bool('wandb', True,'')
 flags.DEFINE_string('data_dir','/home/usergpu/data','')
+flags.DEFINE_string('weights','','')
 flags.DEFINE_integer('batch_size',64,'')
 flags.DEFINE_integer('num_workers',64,'')
 flags.DEFINE_float('lr',1e-4,'')
-flags.DEFINE_integer('num_epochs',1000,'')
+flags.DEFINE_integer('num_epochs',2000,'')
 flags.DEFINE_float('pool_thresh',0.5,'')
 
 
@@ -40,6 +41,7 @@ def main(argv):
     valloader = torch.utils.data.DataLoader(validation_set, batch_size=int(FLAGS.batch_size / 9), shuffle=True, num_workers=FLAGS.num_workers)
 
     classifier = PoolClassifier()
+    if FLAGS.weights: classifier.load_state_dict(torch.load(FLAGS.weights, weights_only=True))
     classifier.to("cuda")
 
     optimizer = torch.optim.Adam(params=classifier.parameters(), lr=FLAGS.lr)
