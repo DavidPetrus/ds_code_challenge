@@ -9,6 +9,8 @@ FLAGS = flags.FLAGS
 
 class PoolClassifier(nn.Module):
     def __init__(self):
+        super(PoolClassifier, self).__init__()
+        
         self.cnn = nn.Sequential(
             nn.Conv2d(in_channels=3, out_channels=16, kernel_size=3, stride=2), nn.SiLU(), # 417
             nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3, stride=2), nn.InstanceNorm2d(32, affine=True), nn.SiLU(), # 209
@@ -27,4 +29,4 @@ class PoolClassifier(nn.Module):
         features = self.cnn(x) # bs, 3, 417, 417 -> bs, 64, 1, 1
         result = self.head(features.squeeze())
 
-        return result
+        return result.squeeze() # bs
