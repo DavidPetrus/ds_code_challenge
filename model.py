@@ -34,3 +34,17 @@ class PoolClassifier(nn.Module):
         result = self.head(features.squeeze())
 
         return result.squeeze() # bs
+
+
+class RequestPredictor(nn.Module):
+    def __init__(self):
+        super(RequestPredictor, self).__init__()
+        
+        self.add_neighbors = False
+        if self.add_neighbors:
+            self.net = nn.Sequential(nn.Linear(26*7, 512), nn.SiLU(), nn.Linear(512, 64), nn.SiLU(), nn.Linear(64, 4))
+        else:
+            self.net = nn.Sequential(nn.Linear(26, 128), nn.SiLU(), nn.Linear(128, 4))
+
+    def forward(self, x):
+        return self.net(x)

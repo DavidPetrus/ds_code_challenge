@@ -5,6 +5,7 @@ from PIL import Image
 import cv2
 import glob
 import os
+import h3
 
 from absl import flags
 
@@ -17,6 +18,7 @@ class SwimmingPoolDataset(torch.utils.data.Dataset):
         self.labels = []
         self.images = []
         self.val = val
+        self.num_neg_val = 1800
         if not self.val:
             for label_file in label_files:
                 with open(label_file, "r") as fp: annots = fp.read().splitlines()
@@ -28,15 +30,15 @@ class SwimmingPoolDataset(torch.utils.data.Dataset):
                 self.labels.append(img_bboxes)
                 self.images.append(label_file.replace(".txt", ".tif"))
 
-            self.images.extend(glob.glob(f"{data_dir}/no/*.tif")[:1200])
+            self.images.extend(glob.glob(f"{data_dir}/no/*.tif")[:self.num_neg_val])
         else:
-            self.images.extend(glob.glob(f"{data_dir}/no/*.tif")[1200:])
+            self.images.extend(glob.glob(f"{data_dir}/no/*.tif")[self.num_neg_val:])
 
             # Add unlabelled pool images for validation
             for pool_image in glob.glob(f"{data_dir}/yes/*.tif"):
                 if pool_image not in self.images:
                     self.images.append(pool_image)
-                    if len(self.images) >= 1200: break
+                    if len(self.images) >= 2*(2400-self.num_neg_val): break
 
         self.image_size = 417
         print(len(self.labels), len(self.images))
@@ -82,17 +84,17 @@ class SwimmingPoolDataset(torch.utils.data.Dataset):
                 for y in [0, 417, 833]:
                     imgs.append(image[x:x+417, y:y+417])
 
-            imgs = torch.from_numpy(np.ascontiguousarray(imgs)).float()
+            imgs = torch.from_numpy(np.ascontiguousarray(np.array(imgs))).float()
             imgs = imgs / 255
             imgs = imgs.movedim(3,1)
 
-            pool = 1. if index > 1200 else 0.
+            pool = 1. if index > 2400-self.num_neg_val else 0.
 
             return imgs, pool
         
 
 
-class TimeSeries(torch.utils.data.Dataset):
+class TimeSeriesDataset(torch.utils.data.Dataset):
     def __init__(self, hex_keys, weekly_counts):
         self.seq_len = 26
         self.hex_keys = hex_keys
@@ -114,4 +116,4 @@ class TimeSeries(torch.utils.data.Dataset):
                 neighbor_seqs.append(self.weekly_counts[n_idx][seq_idx: seq_idx+self.seq_len])
                 input_seq.extend(neighbor_seqs[-1])
                     
-        return input_seq, target_seq
+        return torch.tensor(input_seq).float(), torch.tensor(target_seq).float()
