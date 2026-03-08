@@ -20,9 +20,8 @@ flags.DEFINE_string('exp','test','')
 flags.DEFINE_bool('wandb', True,'')
 flags.DEFINE_integer('batch_size',64,'')
 flags.DEFINE_integer('num_workers',0,'')
-flags.DEFINE_float('lr',1e-2,'')
-flags.DEFINE_integer('num_epochs',20,'')
-flags.DEFINE_float('l1_beta',10.,'')
+flags.DEFINE_float('lr',1e-4,'')
+flags.DEFINE_integer('num_epochs',100,'')
 
 
 def main(argv):
@@ -90,10 +89,10 @@ def main(argv):
             optimizer.step()
 
             with torch.no_grad():
-                slope_diff = (result[:,0] - target_batch).abs().mean()
-                bias_diff = (result[:,1] - target_batch).abs().mean()
+                slope_diff = (result[:,0] - target_batch[:,0]).abs().mean()
+                bias_diff = (result[:,1] - target_batch[:,1]).abs().mean()
 
-            if train_iter % 10 == 1:
+            if train_iter % 100 == 1:
                 print(f"Epoch: {epoch}, Train Iter: {train_iter}, Loss: {loss:.2f}, Slope diff: {slope_diff:.2f}, Bias diff: {bias_diff:.2f}")
 
             if FLAGS.wandb:
@@ -109,16 +108,16 @@ def main(argv):
                 result = predictor(request_batch) # bs
                 loss = F.mse_loss(result, target_batch, reduction="mean")
 
-                slope_diff = (result[:,0] - target_batch).abs().mean()
-                bias_diff = (result[:,1] - target_batch).abs().mean()
+                slope_diff = (result[:,0] - target_batch[:,0]).abs().mean()
+                bias_diff = (result[:,1] - target_batch[:,1]).abs().mean()
 
-                if val_iter % 10 == 1:
+                if val_iter % 100 == 1:
                     print(f"Val Iter: {val_iter}, Loss: {loss:.2f}, Slope diff: {slope_diff:.2f}, Bias diff: {bias_diff:.2f}")
 
                 if FLAGS.wandb:
                     wandb.log({"Epoch": epoch, "Val Iter": val_iter, "Val loss": loss, "Val Slope diff": slope_diff, "Val Bias diff": bias_diff})
 
-        if epoch % 1 == 0:
+        if epoch % 10 == 0:
             torch.save(predictor.state_dict(),f"weights/{FLAGS.exp}_{epoch}.pt")
 
 

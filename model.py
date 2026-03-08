@@ -40,7 +40,7 @@ class RequestPredictor(nn.Module):
     def __init__(self):
         super(RequestPredictor, self).__init__()
 
-        self.add_neighbors = True
+        self.add_neighbors = False
         if self.add_neighbors:
             self.net = nn.Sequential(nn.Linear(26*7, 512), nn.SiLU(), nn.Linear(512, 64), nn.SiLU(), nn.Linear(64, 2))
         else:

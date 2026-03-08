@@ -132,8 +132,7 @@ class TimeSeriesDataset(torch.utils.data.Dataset):
         self.hex_keys = hex_keys
         self.weekly_counts = weekly_counts # num_hexs, num_weeks
 
-        self.add_neighbors = True
-        self.regressor = LinearRegression()
+        self.add_neighbors = False
         self.target_fit_len = target_fit_len
 
     def __len__(self):
@@ -143,7 +142,7 @@ class TimeSeriesDataset(torch.utils.data.Dataset):
         seq_idx = np.random.randint(51 - (self.seq_len + 4))
         input_seq = []
         target_seq = self.weekly_counts[self.hex_keys[index]][seq_idx+self.seq_len+4 - self.target_fit_len: seq_idx+self.seq_len+4]
-        slope, bias = np.polyfit(np.arange(self.target_fit_len), np.array(target_seq))
+        slope, bias = np.polyfit(np.arange(self.target_fit_len), np.array(target_seq), 1)
 
         if self.add_neighbors:
             neighbor_seqs = []
