@@ -21,7 +21,8 @@ flags.DEFINE_bool('wandb', True,'')
 flags.DEFINE_integer('batch_size',64,'')
 flags.DEFINE_integer('num_workers',64,'')
 flags.DEFINE_float('lr',1e-2,'')
-flags.DEFINE_integer('num_epochs',1000,'')
+flags.DEFINE_integer('num_epochs',100,'')
+flags.DEFINE_float('l1_beta',10.,'')
 
 
 def main(argv):
@@ -46,6 +47,7 @@ def main(argv):
     print(data_read[1][2])
     format_string = "%Y-%m-%d %H:%M:%S"
 
+    # Add zero weeks
     weekly_counts = defaultdict(lambda: defaultdict(lambda: 0))
     startdate = datetime(2020,1,5,0,0,0)
     for hex_key, reqs in hex_dict.items():
@@ -54,15 +56,23 @@ def main(argv):
             week_offset = (req_dt - startdate).days // 7
             weekly_counts[hex_key][startdate + week_offset*timedelta(days=7)] += 1
 
+    data_dict = {}
+    for hex_key, req_counts in weekly_counts.items():
+        sorted_dates = sorted(list(req_counts.keys()))
+        if len(sorted_dates) < 50: continue
+        data_dict[hex_key] = []
+        for date in sorted_dates: data_dict[hex_key].append(req_counts[date])
+
     start = datetime.now()
-    training_set = TimeSeriesDataset(list(hex_dict.keys())[:1500], weekly_counts)
+    print(len(data_dict.keys()))
+    training_set = TimeSeriesDataset(list(data_dict.keys())[:750], data_dict)
     trainloader = torch.utils.data.DataLoader(training_set, batch_size=FLAGS.batch_size, shuffle=True, num_workers=FLAGS.num_workers)
 
-    validation_set = TimeSeriesDataset(list(hex_dict.keys())[1500:], weekly_counts)
+    validation_set = TimeSeriesDataset(list(data_dict.keys())[750:], data_dict)
     valloader = torch.utils.data.DataLoader(validation_set, batch_size=FLAGS.batch_size, shuffle=True, num_workers=FLAGS.num_workers)
 
     predictor = RequestPredictor()
-    #predictor.to("cuda")
+    predictor.to("cuda")
 
     optimizer = torch.optim.Adam(params=predictor.parameters(), lr=FLAGS.lr)
     train_iter, val_iter = 0, 0
@@ -73,38 +83,46 @@ def main(argv):
 
             train_iter += 1
             request_batch, target_batch = item
-            request_batch = request_batch#.to("cuda")
-            target_batch = target_batch#.to("cuda")
+            request_batch = request_batch.to("cuda")
+            target_batch = target_batch.to("cuda")
 
             result = predictor(request_batch) # bs
-            loss = F.mse_loss(result, target_batch, reduction="mean")
+            loss = F.smooth_l1_loss(result, target_batch, beta=FLAGS.l1_beta, reduction="mean")
             loss.backward()
 
             optimizer.step()
 
+            with torch.no_grad():
+                diff = result - target_batch
+                diff_frac = (diff / target_batch).abs() / target_batch
+
             if train_iter % 100 == 1:
-                print(f"Epoch: {epoch}, Train Iter: {train_iter}, Loss: {loss:.2f}, Det Pools: {det_pools:.2f}, Miss Pools: {miss_pools:.2f}, False Pos: {false_pools:.2f}")
+                print(f"Epoch: {epoch}, Train Iter: {train_iter}, Loss: {loss:.2f}, Error_frac: {diff_frac:.2f}")
 
             if FLAGS.wandb:
-                wandb.log({"Epoch": epoch, "Train Iter": train_iter, "Loss": loss})
+                wandb.log({"Epoch": epoch, "Train Iter": train_iter, "Loss": loss, "Error frac": diff_frac})
 
         for item in valloader:
             with torch.no_grad():
                 val_iter += 1
                 request_batch, target_batch = item
-                request_batch = request_batch#.to("cuda") # bs,9,c,h,w
-                target_batch = target_batch#.to("cuda") # bs
+                request_batch = request_batch.to("cuda") # bs,9,c,h,w
+                target_batch = target_batch.to("cuda") # bs
 
                 result = predictor(request_batch) # bs
-                loss = F.mse_loss(result, target_batch, reduction="mean")
+                loss = F.smooth_l1_loss(result, target_batch, beta=FLAGS.l1_beta, reduction="mean")
+
+                diff = result - target_batch
+                diff_frac = (diff / target_batch).abs() / target_batch
 
                 if val_iter % 100 == 1:
-                    print(f"Val Iter: {val_iter}, Loss: {loss:.2f}")
+                    print(f"Val Iter: {val_iter}, Loss: {loss:.2f}, Error_frac: {diff_frac:.2f}")
 
                 if FLAGS.wandb:
-                    wandb.log({"Epoch": epoch, "Val Iter": val_iter, "Val loss": loss})
+                    wandb.log({"Epoch": epoch, "Val Iter": val_iter, "Val loss": loss, "Error frac": diff_frac})
 
-        torch.save(predictor.state_dict(),f"weights/{FLAGS.exp}_{epoch}.pt")
+        if epoch % 10 == 0:
+            torch.save(predictor.state_dict(),f"weights/{FLAGS.exp}_{epoch}.pt")
 
 
 if __name__ == '__main__':

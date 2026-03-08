@@ -53,6 +53,7 @@ class SwimmingPoolDataset(torch.utils.data.Dataset):
         self.color_jitter = v2.ColorJitter(0.2, 0.2, 0.2, 0.05)
 
     def crop_pool_image(self, bbox, crop_size):
+        if max(0, bbox[2]-crop_size) >= bbox[0]+1 or max(0, bbox[3]-crop_size) >= bbox[1]+1: crop_size = self.image_size
         lx = min(np.random.randint(max(0, bbox[2]-crop_size), bbox[0]+1), 1250-crop_size)
         ty = min(np.random.randint(max(0, bbox[3]-crop_size), bbox[1]+1), 1250-crop_size)
 
