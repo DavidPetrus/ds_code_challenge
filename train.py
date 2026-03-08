@@ -105,6 +105,9 @@ def main(argv):
                     wandb.log({"Epoch": epoch, "Val Iter": val_iter, "Val Detected Pools": det_pools, "Val Missed Pools": miss_pools, \
                         "Val False Positives": false_pools})
 
+        if epoch % 10 == 0:
+            torch.save(classifier.state_dict(),f"weights/{FLAGS.exp}_{epoch}.pt")
+
 
 
 if __name__ == '__main__':
