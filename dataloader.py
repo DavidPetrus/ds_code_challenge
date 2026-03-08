@@ -1,8 +1,10 @@
 import numpy as np
 import torch
 import torch.nn.functional as F
+from PIL import Image
 import cv2
 import glob
+import os
 
 from absl import flags
 
@@ -11,7 +13,9 @@ FLAGS = flags.FLAGS
 
 class SwimmingPoolDataset(torch.utils.data.Dataset):
     def __init__(self, data_dir):
-        label_files = glob.glob(f"{data_dir}\\yes\\*.txt")
+
+        print(f"{data_dir}/yes/*.txt")
+        label_files = glob.glob(f"{data_dir}/yes/*.txt")
         self.labels = []
         self.images = []
         for label_file in label_files:
@@ -19,18 +23,18 @@ class SwimmingPoolDataset(torch.utils.data.Dataset):
             img_bboxes = []
             for annot in annots:
                 splits = annot.split(" ")
-                img_bboxes.append((int(splits[0]), int(splits[1]), int(splits[2]), int(splits[3]), splits[4]))
+                img_bboxes.append((max(0, int(splits[0])), max(0, int(splits[1])), min(int(splits[2]), 1250), min(int(splits[3]), 1250), splits[4]))
 
             self.labels.append(img_bboxes)
-            self.images.append(label_file.replace(".txt", ".TIF"))
+            self.images.append(label_file.replace(".txt", ".tif"))
 
-        self.images.extend(glob.glob(f"{data_dir}\\no\\*.TIF"))
+        self.images.extend(glob.glob(f"{data_dir}/no/*.tif"))
         self.image_size = 417
         print(len(self.labels), len(self.images))
 
     def crop_pool_image(self, bbox):
-        lx = np.random.randint(max(0, min(bbox[2]-self.image_size, 1250-self.image_size)), bbox[0])
-        ty = np.random.randint(max(0, min(bbox[3]-self.image_size, 1250-self.image_size)), bbox[1])
+        lx = min(np.random.randint(max(0, bbox[2]-self.image_size), bbox[0]+1), 1250-self.image_size)
+        ty = min(np.random.randint(max(0, bbox[3]-self.image_size), bbox[1]+1), 1250-self.image_size)
 
         return (lx, ty, lx+self.image_size, ty+self.image_size)
 
@@ -38,23 +42,27 @@ class SwimmingPoolDataset(torch.utils.data.Dataset):
         return len(self.images)
 
     def __getitem__(self, index):
-        image = cv2.imread(self.images[index])
-        label = self.labels[index] if index < len(self.labels) else []
+        image = np.array(Image.open(self.images[index]))
+        
+        label = self.labels[index] if index < len(self.labels) else None
+        if label == []:
+            image = np.array(Image.open(self.images[np.random.randint(len(self.labels), len(self.images))]))
+            label = None
 
-        if len(label) > 0:
+        if label is not None:
             # Contains pool
             label = label[np.random.randint(len(label))]
             crop_coords = self.crop_pool_image(label)
             crop_image = image[crop_coords[0]:crop_coords[2], crop_coords[1]:crop_coords[3]]
-            pool = 1
-            if crop_image.shape != (417, 417):
+            pool = 1.
+            if crop_image.shape != (417, 417, 3):
                 print(image.shape, crop_image.shape, crop_coords)
         else:
             # No pool
             lx, ty = np.random.randint(0, 1250-self.image_size), np.random.randint(0, 1250-self.image_size)
             crop_image = image[lx: lx+self.image_size, ty: ty+self.image_size]
-            pool = 0
-            if crop_image.shape != (417, 417):
+            pool = 0.
+            if crop_image.shape != (417, 417, 3):
                 print(image.shape, crop_image.shape, lx, ty)
 
 
