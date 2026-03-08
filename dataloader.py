@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 import torch.nn.functional as F
+from torchvision.transforms import v2
 from PIL import Image
 import cv2
 import glob
@@ -43,11 +44,19 @@ class SwimmingPoolDataset(torch.utils.data.Dataset):
         self.image_size = 417
         print(len(self.labels), len(self.images))
 
-    def crop_pool_image(self, bbox):
-        lx = min(np.random.randint(max(0, bbox[2]-self.image_size), bbox[0]+1), 1250-self.image_size)
-        ty = min(np.random.randint(max(0, bbox[3]-self.image_size), bbox[1]+1), 1250-self.image_size)
+        self.rot_flips = v2.Compose([
+            v2.RandomHorizontalFlip(p=0.5),
+            v2.RandomVerticalFlip(p=0.5),
+            v2.RandomRotation(degrees=[-180, 180])
+        ])
 
-        return (lx, ty, lx+self.image_size, ty+self.image_size)
+        self.color_jitter = v2.ColorJitter(0.2, 0.2, 0.2, 0.05)
+
+    def crop_pool_image(self, bbox, crop_size):
+        lx = min(np.random.randint(max(0, bbox[2]-crop_size), bbox[0]+1), 1250-crop_size)
+        ty = min(np.random.randint(max(0, bbox[3]-crop_size), bbox[1]+1), 1250-crop_size)
+
+        return (lx, ty, lx+crop_size, ty+crop_size)
 
     def __len__(self):
         return len(self.images)
@@ -61,21 +70,42 @@ class SwimmingPoolDataset(torch.utils.data.Dataset):
                 image = np.array(Image.open(self.images[np.random.randint(len(self.labels), len(self.images))]))
                 label = None
 
+            aug = True
             if label is not None:
                 # Contains pool
                 label = label[np.random.randint(len(label))]
-                crop_coords = self.crop_pool_image(label)
+                if aug:
+                    if np.random.random() > 0.75:
+                        crop_coords = self.crop_pool_image(label, self.image_size)
+                    else:
+                        crop_coords = self.crop_pool_image(label, int(self.image_size * (1 - np.random.random()/4)))
+                else:
+                    crop_coords = self.crop_pool_image(label, self.image_size)
+
                 crop_image = image[crop_coords[0]:crop_coords[2], crop_coords[1]:crop_coords[3]]
+                if aug:
+                    crop_image = cv2.resize(crop_image, (self.image_size, self.image_size))
+
                 pool = 1.
             else:
                 # No pool
-                lx, ty = np.random.randint(0, 1250-self.image_size), np.random.randint(0, 1250-self.image_size)
-                crop_image = image[lx: lx+self.image_size, ty: ty+self.image_size]
+                if aug:
+                    crop_size = self.image_size if np.random.random() > 0.75 else int(self.image_size * (1 - np.random.random()/4))
+                    lx, ty = np.random.randint(0, 1250-crop_size), np.random.randint(0, 1250-crop_size)
+                    crop_image = image[lx: lx+self.image_size, ty: ty+self.image_size].copy()
+                    crop_image = cv2.resize(crop_image, (self.image_size, self.image_size))
+                else:
+                    lx, ty = np.random.randint(0, 1250-self.image_size), np.random.randint(0, 1250-self.image_size)
+                    crop_image = image[lx: lx+self.image_size, ty: ty+self.image_size]
+                
                 pool = 0.
 
             img = torch.from_numpy(np.ascontiguousarray(crop_image)).float()
             img = img / 255
             img = img.movedim(2,0)
+
+            img = self.rot_flips(img)
+            img = self.color_jitter(img)
 
             return img, pool
         else:
@@ -103,12 +133,12 @@ class TimeSeriesDataset(torch.utils.data.Dataset):
         self.add_neighbors = False
 
     def __len__(self):
-        return len(self.weekly_counts)
+        return len(self.hex_keys)
 
     def __getitem__(self, index):
-        seq_idx = np.random.randint(51 - (self.seq_len + 4))
-        input_seq = self.weekly_counts[index][seq_idx: seq_idx+self.seq_len]
-        target_seq = self.weekly_counts[index][seq_idx+self.seq_len: seq_idx+self.seq_len+4]
+        seq_idx = np.random.randint(len(self.weekly_counts[self.hex_keys[index]]) - (self.seq_len + 4))
+        input_seq = self.weekly_counts[self.hex_keys[index]][seq_idx: seq_idx+self.seq_len]
+        target_seq = self.weekly_counts[self.hex_keys[index]][seq_idx+self.seq_len: seq_idx+self.seq_len+4]
         if self.add_neighbors:
             neighbor_seqs = []
             for hex_key in h3.k_ring(self.hex_keys[index]):
