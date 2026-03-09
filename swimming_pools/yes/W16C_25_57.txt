@@ -1,0 +1,4 @@
+730 642 830 692 pool
+808 1172 908 1252 difficult_pool
+338 736 416 792 difficult_pool
+286 1050 344 1134 pool

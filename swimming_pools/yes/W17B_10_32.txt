@@ -1,0 +1,2 @@
+372 32 440 86 pool
+510 632 582 716 difficult_pool

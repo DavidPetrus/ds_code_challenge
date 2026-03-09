@@ -1,0 +1,2 @@
+70 342 170 426 pool
+1166 8 1248 50 difficult_pool

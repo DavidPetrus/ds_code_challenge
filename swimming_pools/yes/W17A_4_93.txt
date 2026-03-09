@@ -1,0 +1,3 @@
+150 490 248 556 pool
+1100 166 1226 236 difficult_pool
+426 70 516 168 difficult_pool

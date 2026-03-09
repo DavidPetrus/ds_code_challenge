@@ -1,0 +1,4 @@
+306 830 368 882 pool
+970 750 1050 838 pool
+42 180 130 258 difficult_pool
+556 1004 644 1064 difficult_pool

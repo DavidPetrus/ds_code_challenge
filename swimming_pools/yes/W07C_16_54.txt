@@ -1,0 +1,1 @@
+32 4 96 40 difficult_pool
