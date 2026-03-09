@@ -48,7 +48,7 @@ def main(argv):
         if pool_conf > FLAGS.pool_thresh:
             region_x, region_y = int(pool_region % 3), int(pool_region // 3)
             cv2.rectangle(image, (region_x*417, region_y*417), ((region_x+1)*417, (region_y+1)*417), (255, 0, 0), 2)
-            cv2.putText(image, f"{pool_conf}", (region_x*417, region_y*417), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+            cv2.putText(image, f"{pool_conf}", (region_x*417 +, region_y*417 + 10), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
             print(f"Detected pool on {image_file} with confidence {pool_conf}")
         else:
             print(f"No pool detected on {image_file}, Max detection confidence: {pool_conf}")
